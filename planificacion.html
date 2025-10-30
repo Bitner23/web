@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calculadora de Planificación de CPU</title>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg,#e3f2fd,#bbdefb); padding:20px; }
+  h1 { text-align:center; color:#0d47a1; }
+  .card { background:#fff; border-radius:10px; box-shadow:0 4px 12px rgba(0,0,0,.1); padding:20px; margin:20px auto; max-width:950px; }
+  table { border-collapse:collapse; width:100%; margin-top:10px; }
+  th,td { border:1px solid #90caf9; padding:8px; text-align:center; }
+  th { background:#1565c0; color:white; }
+  input { width:70px; text-align:center; padding:5px; }
+  button { background:#1565c0; color:white; border:none; padding:10px 15px; margin:5px; border-radius:6px; cursor:pointer; transition:0.3s; }
+  button:hover { background:#0d47a1; }
+  label { font-weight:bold; color:#0d47a1; }
+</style>
+</head>
+<body>
+<h1>🧮 Calculadora de Planificación de CPU</h1>
+
+<div class="card">
+  <h3>Configuración inicial</h3>
+  <label>Cantidad de procesos:</label>
+  <input type="number" id="cantidad" value="4" min="1">
+  <button onclick="crearTabla()">Crear tabla</button>
+
+  <table id="tabla">
+    <tr><th>Proceso</th><th>Tiempo</th><th>Prioridad</th></tr>
+  </table>
+
+  <br>
+  <label>Quantum (para Round Robin):</label>
+  <input type="number" id="quantum" value="5" min="1">
+  <br><br>
+
+  <button onclick="calcular('FCFS')">FCFS</button>
+  <button onclick="calcular('SJF')">SJF</button>
+  <button onclick="calcular('PRIORIDAD')">Prioridad</button>
+  <button onclick="calcular('RR')">Round Robin</button>
+</div>
+
+<div class="card" id="resultado"></div>
+
+<script>
+// === Crear tabla de procesos ===
+function crearTabla(){
+  const n=parseInt(document.getElementById('cantidad').value);
+  let html="<tr><th>Proceso</th><th>Tiempo</th><th>Prioridad</th></tr>";
+  for(let i=1;i<=n;i++){
+    html+=`<tr>
+      <td>P${i}</td>
+      <td><input value="${[10,15,5,20][i-1]||5}"></td>
+      <td><input value="${[2,1,3,1][i-1]||1}"></td>
+    </tr>`;
+  }
+  document.getElementById("tabla").innerHTML=html;
+}
+
+// === Leer procesos ===
+function leerProcesos(){
+  const filas=[...document.querySelectorAll("#tabla tr")].slice(1);
+  return filas.map((f,i)=>{
+    const [rafaga,prioridad]=[...f.querySelectorAll("input")].map(x=>parseInt(x.value));
+    return {nombre:"P"+(i+1),rafaga,prioridad,idx:i};
+  });
+}
+
+// === Mostrar tabla genérica ===
+function mostrarTabla(lista,titulo){
+  let html=`<h3>${titulo}</h3><table><tr><th>Proceso</th><th>Tiempo</th><th>Inicio</th><th>Fin</th><th>Espera</th><th>Retorno</th></tr>`;
+  let total=0;
+  lista.forEach(p=>{
+    total+=p.espera;
+    html+=`<tr><td>${p.nombre}</td><td>${p.rafaga}</td><td>${p.inicio}</td><td>${p.fin}</td><td>${p.espera}</td><td>${p.retorno}</td></tr>`;
+  });
+  html+=`</table><p><b>Promedio de Espera:</b> ${(total/lista.length).toFixed(6)}</p>`;
+  return html;
+}
+
+// === FCFS ===
+function fcfs(proc){
+  let tiempo=0;
+  const lista=proc.map(p=>{
+    const inicio=tiempo;
+    const fin=inicio+p.rafaga;
+    const espera=inicio;
+    const retorno=fin;
+    tiempo=fin;
+    return {...p,inicio,fin,espera,retorno};
+  });
+  return mostrarTabla(lista,"🔹 FCFS");
+}
+
+// === SJF ===
+function sjf(proc){
+  const lista=[]; let tiempo=0, procesos=[...proc];
+  while(procesos.length){
+    const corto=procesos.reduce((a,b)=>a.rafaga<b.rafaga?a:b);
+    const inicio=tiempo;
+    const fin=inicio+corto.rafaga;
+    const espera=inicio;
+    const retorno=fin;
+    lista.push({...corto,inicio,fin,espera,retorno});
+    tiempo=fin;
+    procesos=procesos.filter(p=>p!==corto);
+  }
+  return mostrarTabla(lista,"🔹 SJF");
+}
+
+// === Prioridad (empates por número de proceso) ===
+function prioridad(proc){
+  const orden=[...proc].sort((a,b)=>(a.prioridad-b.prioridad)||(a.idx-b.idx));
+  let tiempo=0;
+  const lista=orden.map(p=>{
+    const inicio=tiempo;
+    const fin=inicio+p.rafaga;
+    const espera=inicio;
+    const retorno=fin;
+    tiempo=fin;
+    return {...p,inicio,fin,espera,retorno};
+  });
+  return mostrarTabla(lista,"🔹 Prioridad");
+}
+
+// === Round Robin (método académico exacto) ===
+function roundRobin(proc,q){
+  let tiempo=0;
+  const lista=proc.map(p=>({...p,restante:p.rafaga}));
+  const rondas=[];
+
+  while(lista.some(p=>p.restante>0)){
+    for(const p of lista){
+      if(p.restante>0){
+        const uso=Math.min(q,p.restante);
+        rondas.push({p:p.nombre,usado:uso,rest:p.restante-uso,inicio:tiempo});
+        p.restante-=uso;
+        tiempo+=uso;
+      }
+    }
+  }
+
+  // Filtrar repeticiones consecutivas del mismo proceso
+  const iniciosFiltrados=[];
+  for(let i=0;i<rondas.length;i++){
+    if(i===0||rondas[i].p!==rondas[i-1].p){
+      iniciosFiltrados.push(rondas[i].inicio);
+    }
+  }
+
+  const suma=iniciosFiltrados.reduce((a,b)=>a+b,0);
+  const promedio=suma/iniciosFiltrados.length;
+
+  // Mostrar resultados
+  let html=`<h3>🔹 Round Robin (Quantum = ${q})</h3>
+  <table><tr><th>Proceso</th><th>[Q usado]</th><th>[TR restante]</th><th>[Inicio]</th></tr>`;
+  rondas.forEach(r=>{
+    html+=`<tr><td>${r.p}</td><td>${r.usado}</td><td>${r.rest}</td><td>${r.inicio}</td></tr>`;
+  });
+  html+=`</table><p><b>Promedio (sin repeticiones consecutivas):</b> ${suma} / ${iniciosFiltrados.length} = ${promedio.toFixed(2)}</p>`;
+  return html;
+}
+
+// === Controlador general ===
+function calcular(tipo){
+  const procesos=leerProcesos();
+  const q=parseInt(document.getElementById("quantum").value);
+  let html="";
+  if(tipo==="FCFS") html=fcfs(procesos);
+  else if(tipo==="SJF") html=sjf(procesos);
+  else if(tipo==="PRIORIDAD") html=prioridad(procesos);
+  else if(tipo==="RR") html=roundRobin(procesos,q);
+  document.getElementById("resultado").innerHTML=html;
+}
+</script>
+</body>
+</html>
